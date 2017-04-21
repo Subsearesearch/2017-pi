@@ -53,6 +53,9 @@ def separate_left(sc, sci):
 separate_left.prev = (0, 0)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(('192.168.1.61', 80))
+try:
+    s.connect(('192.168.1.61', 80))  # Local address
+except OSError:
+    s.connect(('http://67.182.23.160', 8000))  # Web address
 
 SteamController(callback=send, callback_args=s).run()
