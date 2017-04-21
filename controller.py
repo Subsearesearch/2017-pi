@@ -1,9 +1,17 @@
-from steamcontroller import SteamController
+import socket
 from struct import pack
+
+from steamcontroller import SteamController
+
+
+def send(sc, sci, sock):
+    """Process controller input and send over socket sock."""
+    p = normalize(sc, sci)
+    sock.send(p)
 
 
 def normalize(sc, sci):
-    # Detangle touchpad and stick
+    # Detangle touchpad and stick and return bytepack
     lpad_x, lpad_y, joy_x, joy_y = separate_left(sc, sci)
     trans_x = sci.rpad_x
     trans_y = sci.rpad_y
@@ -12,11 +20,8 @@ def normalize(sc, sci):
     rot_y = 0
     rot_z = lpad_x
     buttons = normalize_buttons(sc, sci)
-    print(pack(
-        '>' + 'h' * 7,
-        trans_x, trans_y, trans_z,
-        rot_x, rot_y, rot_z, buttons
-    ))
+    return pack('>' + 'h' * 7, trans_x, trans_y, trans_z, rot_x, rot_y, rot_z,
+                buttons)
     # print(len(bin(sci.rpad_y)), bin(sci.rpad_y), sci.rpad_y)
 
 
@@ -47,8 +52,7 @@ def separate_left(sc, sci):
 
 separate_left.prev = (0, 0)
 
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(('192.168.1.61', 80))
 
-SteamController(callback=normalize).run()
-
-# for x in range(-8, 8):
-#     print(x, bin(tc(x, 3)))
+SteamController(callback=send, callback_args=s).run()
