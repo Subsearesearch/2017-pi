@@ -1,32 +1,59 @@
-import socket
+# TODO: [x] Try 192.168.1.61:8000 first. If that doesn't work, then use 67.182.23.160
+# TODO: [x] Toggle LED (button byte = 2) on face button push.
+# TODO: [ ] LIFO queue for faster polling...?
+# TODO: [ ] Set static IP for RPi.
+
+import binascii
 from struct import pack
+from timeit import timeit
+from requests.exceptions import ConnectionError, ConnectTimeout, ReadTimeout
+from requests import get
 
 from steamcontroller import SteamController
 
 
-def send(sc, sci, sock):
-    """Process controller input and send over socket sock."""
+URL = 'http://192.168.1.61:8000'
+
+
+def send(sc, sci):
+    """Process controller input and send to the microcontroller."""
+    global URL
     p = normalize(sc, sci)
-    sock.send(p)
+    # print(binascii.hexlify(p))
+    r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
+    print('Response code:', r.status_code)
+    # print('Response text:', r.text)
+    # print('Request URL:  ', r.url)
+
+
+def test_network():
+    try:
+        r = get('http://67.182.23.160:8000', params={'LED': 'Toggle'}, timeout=2)
+        print(r.text)
+    except ConnectTimeout:
+        pass
 
 
 def normalize(sc, sci):
-    # Detangle touchpad and stick and return bytepack
+    """Detangle touchpad and stick and return bytepack."""
     lpad_x, lpad_y, joy_x, joy_y = separate_left(sc, sci)
     trans_x = sci.rpad_x
     trans_y = sci.rpad_y
     trans_z = lpad_y
-    rot_x = joy_y
-    rot_y = 0
+    rot_x = 0
+    rot_y = joy_x
     rot_z = lpad_x
     buttons = normalize_buttons(sc, sci)
-    return pack('>' + 'h' * 7, trans_x, trans_y, trans_z, rot_x, rot_y, rot_z,
+    print(buttons)
+    return pack('>7h', trans_x, trans_y, trans_z, rot_x, rot_y, rot_z,
                 buttons)
     # print(len(bin(sci.rpad_y)), bin(sci.rpad_y), sci.rpad_y)
 
 
 def normalize_buttons(sc, sci):
-    return 1 if sci.buttons else 0
+    start = 1 if sci.buttons & 1744830463 else 0
+    led = 2 if sci.buttons & (0b1111 << 12) else 0
+    return start + led
 
 
 def separate_left(sc, sci):
@@ -52,10 +79,13 @@ def separate_left(sc, sci):
 
 separate_left.prev = (0, 0)
 
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.connect(('192.168.1.61', 80))  # Local address
-except OSError:
-    s.connect(('http://67.182.23.160', 8000))  # Web address
+# print(timeit('test_network()', setup='from __main__ import test_network', number=50))
 
-SteamController(callback=send, callback_args=s).run()
+try:
+    get(URL)
+except ConnectionError:
+    URL = 'http://67.182.23.160:8000'
+
+
+print('Starting handler...')
+SteamController(callback=send).run()
