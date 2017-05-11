@@ -37,8 +37,8 @@ def send():
         except IndexError:
             pass  # P stays the same from previous loop
         print('**{} {}x {}'.format(EXPONENT[0], MULTIPLIER[0], p))
-        # r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
-        # print('Response text:', r.text)
+        r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
+        print('Response text:', r.text)
 
         # Delay for 50ms
         sleep(0.05)
