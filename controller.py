@@ -1,98 +1,109 @@
-# TODO: [x] Try 192.168.1.61:8000 first. If that doesn't work, then use 67.182.23.160
+# TODO: [x] Try 192.168.1.61:8000 first. If that doesn't work, then use
+#           67.182.23.160
 # TODO: [x] Toggle LED (button byte = 2) on face button push.
-# TODO: [ ] LIFO queue for faster polling...?
+# TODO: [x] LIFO queue for faster polling...?
 # TODO: [x] Set static IP for RPi.
+# TODO: [ ] Add exponential sensitivity curve.
 
 import binascii
-from time import sleep
 from struct import pack
-from timeit import timeit
-from requests.exceptions import ConnectionError, ConnectTimeout, ReadTimeout
-from requests import get
+from collections import deque
+from threading import Thread
+from time import sleep
 
+from requests import get
+from requests.exceptions import ConnectionError, ConnectTimeout
 from steamcontroller import SCButtons as Masks
 from steamcontroller import SteamController
 
-#Joey: Changed port from 8000 to 80
 URL = 'http://192.168.1.61:80'
 
 IMU = 0
 MULTIPLIER = [1, 0.5]  # Multiply all axes by this
+EXPONENT = [1, 3]
+LATEST_DATA = deque(maxlen=2)  # Extra length just in case
 
-def send(sc, sci):
-    """Process controller input and send to the microcontroller."""
+
+def send():
+    """Continually process controller input and send to the microcontroller."""
     global URL
+    global LATEST_DATA
+    global MULTIPLIER
+    global EXPONENT
 
-    p = normalize(sc, sci)
-    r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
-    # print('Response code:', r.status_code)
+    while True:
+        try:
+            p = LATEST_DATA.pop()
+        except IndexError:
+            pass  # P stays the same from previous loop
+        print('**{} {}x {}'.format(EXPONENT[0], MULTIPLIER[0], p))
+        # r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
+        # print('Response text:', r.text)
 
-    # print('Response text:', r.text)
-    # print('Request URL:  ', r.url)
-
-    # Delay for 50ms
-    sleep(0.05)
-
-#Joey: The parameter LED=Toggle no longer toggles the LED.
-def test_network():
-    try:
-        r = get('http://67.182.23.160:8000', params={'LED': 'Toggle'}, timeout=2)
-        print(r.text)
-    except ConnectTimeout:
-        pass
+        # Delay for 50ms
+        sleep(0.05)
 
 
 def normalize(sc, sci):
     """Detangle touchpad and stick and return bytepack."""
     global MULTIPLIER
+    global EXPONENT
+    global LATEST_DATA
+    m = 32768  # Maximum touchpad value
+
+    rpad_x, rpad_y = sci.rpad_x, sci.rpad_y
     lpad_x, lpad_y, joy_x, joy_y = separate_left(sc, sci)
-    trans_x = int(MULTIPLIER[0] * sci.rpad_x)
-    trans_y = int(MULTIPLIER[0] * sci.rpad_y)
-    trans_z = int(MULTIPLIER[0] * lpad_y)
-    rot_x = int(MULTIPLIER[0] * 0)
-    rot_y = int(MULTIPLIER[0] * joy_x)
-    rot_z = int(MULTIPLIER[0] * lpad_x)
+    # print(rpad_x, rpad_y, lpad_y, 0, joy_x, lpad_x)
+
+    trans_y = int((rpad_y / m) ** EXPONENT[0] * m * MULTIPLIER[0])
+    trans_x = int((rpad_x / m) ** EXPONENT[0] * m * MULTIPLIER[0])
+    trans_z = int((lpad_y / m) ** EXPONENT[0] * m * MULTIPLIER[0])
+    rot_x = int((0 / m) ** EXPONENT[0] * m * MULTIPLIER[0])
+    rot_y = int((joy_x / m) ** EXPONENT[0] * m * MULTIPLIER[0])
+    rot_z = int((lpad_x / m) ** EXPONENT[0] * m * MULTIPLIER[0])
     buttons = normalize_buttons(sc, sci)
 
-    #Print button word.
-    # print(buttons)
-    #Print Steam controller buttons.
-    # print(format(sci.buttons, '032b'))
-
-    if sci.buttons & (1<<20):
+    if sci.buttons & (1 << 20):
         exit()
 
+    # print(trans_x, trans_y, trans_z, rot_x, rot_y, rot_z)
     bytepack = pack('>7h', trans_x, trans_y, trans_z, rot_x, rot_y, rot_z,
                     buttons)
-    print(bytepack)
-    return bytepack
-    # print(len(bin(sci.rpad_y)), bin(sci.rpad_y), sci.rpad_y)
+    # print(bytepack)
+    LATEST_DATA.append(bytepack)
 
 
 def normalize_buttons(sc, sci):
     """Return button word."""
     global IMU
     global MULTIPLIER
+    global EXPONENT
 
-    #Any button can be pressed to start ROV.
+    # Any button can be pressed to start ROV.
     start = 1 if sci.buttons & 1744830463 else 0
 
-    #Press button 'A' to turn LED on, and press button 'B' to turn LED off.
+    # Press button 'A' to turn LED on, and press button 'B' to turn LED off.
     led = 6 if sci.buttons & Masks.A else (4 if sci.buttons & Masks.B else 0)
 
-    #Press button 'Y' to turn IMU on, and press button 'X' to turn IMU off. IMU will be disabled by default in ARM code.
+    # Press button 'Y' to turn IMU on, and press button 'X' to turn IMU off.
+    # IMU will be disabled by default in ARM code.
     IMU = 8 if sci.buttons & Masks.Y else (0 if sci.buttons & Masks.X else IMU)
 
     # Left bumper cycles through multipliers
-    if not normalize_buttons.lb and sci.buttons & Masks.LB:  # Rising edge detector
-        print('Cycling MULTIPLIER')
+    if not normalize_buttons.lb and sci.buttons & Masks.LB:  # Rising edge
         MULTIPLIER = MULTIPLIER[1:] + [MULTIPLIER[0]]
-        print('New multiplier:', MULTIPLIER)
     normalize_buttons.lb = bool(sci.buttons & Masks.LB)
+
+    # Right bumper cycles through exponents
+    if not normalize_buttons.rb and sci.buttons & Masks.RB:
+        EXPONENT = EXPONENT[1:] + [EXPONENT[0]]
+    normalize_buttons.rb = bool(sci.buttons & Masks.RB)
 
     return start + led + IMU
 
+
 normalize_buttons.lb = False
+normalize_buttons.rb = False
 
 
 def separate_left(sc, sci):
@@ -119,11 +130,17 @@ def separate_left(sc, sci):
 
 separate_left.prev = (0, 0)
 
+# try:
+#     get(URL)
+# except ConnectionError:
+#     URL = 'http://67.182.23.160:8000'
 
-try:
-    get(URL)
-except ConnectionError:
-    URL = 'http://67.182.23.160:8000'
+print('Starting input thread...')
+input_thread = Thread(target=SteamController(callback=normalize).run)
+input_thread.start()
+print('Done')
 
-print('Starting handler...')
-SteamController(callback=send).run()
+print('Starting output thread...')
+output_thread = Thread(target=send)
+output_thread.start()
+print('Done')
