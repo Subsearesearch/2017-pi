@@ -3,13 +3,14 @@
 # TODO: [x] Toggle LED (button byte = 2) on face button push.
 # TODO: [x] LIFO queue for faster polling...?
 # TODO: [x] Set static IP for RPi.
-# TODO: [ ] Add exponential sensitivity curve.
+# TODO: [x] Add exponential sensitivity curve.
 
 import binascii
 from struct import pack
 from collections import deque
 from threading import Thread
 from time import sleep
+import sys
 
 from requests import get
 from requests.exceptions import ConnectionError, ConnectTimeout
@@ -35,13 +36,16 @@ def send():
         try:
             p = LATEST_DATA.pop()
         except IndexError:
-            pass  # P stays the same from previous loop
+            #raise IndexError("The Steam Controller wasn't properly ejected when the last execution failed. Try unplugging it and plugging it back in.")
+            pass # p stays the same from previous loop
         print('**{} {}x {}'.format(EXPONENT[0], MULTIPLIER[0], p))
-        r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
+        # r = get(URL, params={'ROV': binascii.hexlify(p)}, timeout=2)
+        r = get(URL, params=p, timeout=2)
+        print(r.url)
         print('Response text:', r.text)
 
         # Delay for 50ms
-        sleep(0.05)
+        # sleep(0.05)
 
 
 def normalize(sc, sci):
@@ -66,11 +70,22 @@ def normalize(sc, sci):
     if sci.buttons & (1 << 20):
         exit()
 
+    jsonpack = {
+        'xLin': trans_x,
+        'yLin': trans_y,
+        'zLin': trans_z,
+        'xRot': rot_x,
+        'yRot': rot_y,
+        'zRot': rot_z,
+        # 'btns': buttons
+        # 'btns': False
+    }
     # print(trans_x, trans_y, trans_z, rot_x, rot_y, rot_z)
     bytepack = pack('>7h', trans_x, trans_y, trans_z, rot_x, rot_y, rot_z,
                     buttons)
     # print(bytepack)
-    LATEST_DATA.append(bytepack)
+    # LATEST_DATA.append(bytepack)
+    LATEST_DATA.append(jsonpack)
 
 
 def normalize_buttons(sc, sci):
@@ -133,14 +148,21 @@ separate_left.prev = (0, 0)
 # try:
 #     get(URL)
 # except ConnectionError:
-#     URL = 'http://67.182.23.160:8000'
+#     URL = 'http://98.255.144.14:8000'
 
-print('Starting input thread...')
-input_thread = Thread(target=SteamController(callback=normalize).run)
-input_thread.start()
-print('Done')
+try:
+    print('Starting input thread...')
+    input_thread = Thread(target=SteamController(callback=normalize).run)
+    input_thread.start()
+    print('Done')
 
-print('Starting output thread...')
-output_thread = Thread(target=send)
-output_thread.start()
-print('Done')
+    print('Starting output thread...')
+    output_thread = Thread(target=send)
+    output_thread.start()
+    print('Done')
+    while True:
+        sleep(100)
+except KeyboardInterrupt:
+    print('Wow! Congratulations on breaking everything. Way to go.\nExiting now')
+    raise KeyboardInterrupt
+    # sys.exit()
