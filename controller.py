@@ -62,7 +62,7 @@ def normalize(sc, sci):
     trans_y = int((rpad_y / m) ** EXPONENT[0] * m * MULTIPLIER[0])
     trans_x = int((rpad_x / m) ** EXPONENT[0] * m * MULTIPLIER[0])
     trans_z = int((lpad_y / m) ** EXPONENT[0] * m * MULTIPLIER[0])
-    rot_x = int((0 / m) ** EXPONENT[0] * m * MULTIPLIER[0])
+    rot_x = int((joy_y / m) ** EXPONENT[0] * m * MULTIPLIER[0])
     rot_y = int((joy_x / m) ** EXPONENT[0] * m * MULTIPLIER[0])
     rot_z = int((lpad_x / m) ** EXPONENT[0] * m * MULTIPLIER[0])
     buttons = normalize_buttons(sc, sci)
